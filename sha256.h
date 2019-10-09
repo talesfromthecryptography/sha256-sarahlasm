@@ -1,8 +1,7 @@
 
 /*********************************************************************
 * Filename:   sha256.h
-* Author:     
-* Copyright:
+* Author: Sarah Lasman
 * Disclaimer: This code is presented "as is" without any guarantees.
 * Details:    Defines the API for the corresponding SHA1 implementation.
 *********************************************************************/
@@ -11,6 +10,7 @@
 #define SHA256_H
 
 /*************************** HEADER FILES ***************************/
+#include <stdint.h>
 
 /****************************** MACROS ******************************/
 
@@ -23,7 +23,7 @@
 
 
 typedef struct {
-	uint32_t buffer[SHA256_BUFFER_SIZE]; // buffer input until we can transform 512 bits
+	uint8_t buffer[SHA256_BUFFER_SIZE]; // buffer input until we can transform 512 bits
 	uint8_t  buffer_bytes_used;
 
 	uint64_t bit_len;                 // used in final padding
@@ -34,6 +34,8 @@ typedef struct {
 /*********************** FUNCTION DECLARATIONS **********************/
 void sha256_init(sha256_state *state);
 void sha256_update(sha256_state *state, const uint8_t data[], int len);
-void sha256_final(sha256_state *state,  uint8_t hash[]);
+void sha256_final(sha256_state *state,  uint32_t hash[]);
+void printData(uint32_t* data);
+
 
 #endif   // SHA256_H

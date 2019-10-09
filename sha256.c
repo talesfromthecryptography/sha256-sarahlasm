@@ -1,7 +1,6 @@
 /*********************************************************************
 * Filename:   sha256.c
-* Author:     
-* Copyright:
+* Author: Sarah Lasman
 * Disclaimer: This code is presented "as is" without any guarantees.
 *
 * Implementation of the SHA-256 hashing algorithm.
@@ -15,6 +14,7 @@
 #include <stdlib.h>
 #include <memory.h>
 #include "sha256.h"
+#include <stdio.h>
 
 /****************************** MACROS ******************************/
 
@@ -48,64 +48,57 @@ static const uint32_t k[NUM_ROUNDS] = {
 };
 
 static const uint32_t init_digest[SHA256_DIGEST_SIZE] = {
-	0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 
+	0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
   0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19
 };
 
 /*********************** Implementations ***********************/
 
-void sha256_transform(sha256_state *state)
-{
 
+void sha256_transform(sha256_state *state) {
   // Improve the efficiency of this code.
   //  1. Reduce memory usage by re-cycling w values
   //  2. Find a way to reduce copying (lines 83-90)
-  //  
+  //
   //  Consider re-ordering some code
-  // 
-	uint32_t a, b, c, d, e, f, g, h, t1, t2, w[NUM_ROUNDS];
+  //
+	uint32_t t1, t2, w[NUM_ROUNDS];
   uint8_t  i;
+	uint32_t arrayOfLetters[8]; //rather than a-h, we're using an array where arrayOfLetters[0] = a, [1] = b, etc.
+														 //I wish I called it something shorter, but fight me
+	uint8_t base = 0;
 
 	for (i = 0; i < 16; ++i)
 		w[i] = state->buffer[i];
 	for ( ; i < 64; ++i)
 		w[i] = SIG1(w[i - 2]) + w[i - 7] + SIG0(w[i - 15]) + w[i - 16];
 
-	a = state->digest[0];
-	b = state->digest[1];
-	c = state->digest[2];
-	d = state->digest[3];
-	e = state->digest[4];
-	f = state->digest[5];
-	g = state->digest[6];
-	h = state->digest[7];
-
-	for (i = 0; i < 64; ++i) {
-		t1 = h + EP1(e) + CH(e,f,g) + k[i] + w[i];
-		t2 = EP0(a) + MAJ(a,b,c);
-		h = g;
-		g = f;
-		f = e;
-		e = d + t1;
-		d = c;
-		c = b;
-		b = a;
-		a = t1 + t2;
+	for (i = 0; i < 8; ++i) {
+		arrayOfLetters[i] = state->digest[i];
 	}
 
-	state->digest[0] += a;
-	state->digest[1] += b;
-	state->digest[2] += c;
-	state->digest[3] += d;
-	state->digest[4] += e;
-	state->digest[5] += f;
-	state->digest[6] += g;
-	state->digest[7] += h;
+	for (i = 0; i < 64; ++i) {
+		t1 = arrayOfLetters[(base+7)%8] + EP1(arrayOfLetters[(base+4)%8]) + CH(arrayOfLetters[(base+4)%8],arrayOfLetters[(base+5)%8],arrayOfLetters[(base+6)%8]) + k[i] + w[i];
+		t2 = EP0(arrayOfLetters[base]) + MAJ(arrayOfLetters[base],arrayOfLetters[(base+1)%8],arrayOfLetters[(base+2)%8]);
+		base = (base-1) % 8;
+		arrayOfLetters[(base+4)%8] += t1;
+		arrayOfLetters[base] = t1 + t2;
+	}
+
+	for (i = 0; i < 8; ++i) {
+		state->digest[i] += arrayOfLetters[(base+i)%8];
+	}
+
 }
+
+
 
 void sha256_init(sha256_state *state)
 {
   int i;
+	for (int i = 0; i < 16; ++i) {
+		state->buffer[i] = 0;
+	}
 
 	state->buffer_bytes_used = 0;
 	state->bit_len = 0;
@@ -120,7 +113,7 @@ void sha256_update(sha256_state *state, const uint8_t data[], int len)
 
 	for (i = 0; i < len; ++i) {
 		// Add data[i] to the buffer
-    
+		state->buffer[state->buffer_bytes_used] = data[i];
 		state->buffer_bytes_used++;
 		if (state->buffer_bytes_used == BUFFER_FULL) {
 			sha256_transform(state);
@@ -130,10 +123,44 @@ void sha256_update(sha256_state *state, const uint8_t data[], int len)
 	}
 }
 
-void sha256_final(sha256_state *state, uint8_t hash[])
-{	
+
+void printData(uint32_t* data) {
+  for (int i = 0; i < SHA256_DIGEST_SIZE; ++i) {
+    printf("%08x ", data[i]);
+  }
+  printf("\n");
+}
+
+void sha256_final(sha256_state *state, uint32_t hash[])
+{
+	uint8_t bytes_used = state->buffer_bytes_used;
 	// Pad the buffer.
+	state->buffer[bytes_used] |= ((uint32_t) 0x80); //Add the 1: 1000 0000 is 0x80
+																									//Does this have to be shifted? @TODO
+	bytes_used++;
+	if (state->buffer_bytes_used < 56) {
+		while (bytes_used < 64) {
+			state->buffer[bytes_used >> 2] |= 0;
+			bytes_used++;
+		}
+	} else { // Need to add more buffers, yeet
+		// If latest buffer could not fit state->bit_len, build final buffer and transform
+		while (bytes_used < 64) {
+			state->buffer[bytes_used >> 2] |= 0;
+			bytes_used++;
+			sha256_transform(state);
+			memset(state->buffer, 0, 56); //@TODO check if this is proper use of memset
+		}
+	}
   // Transform
-  // If latest buffer could not fit state->bit_len, build final buffer and transform
-	// Copy state->digest to hash
+	state->bit_len += state->buffer_bytes_used * 8;
+	state->buffer[15] = (uint32_t)(state->bit_len);
+	state->buffer[14] = (uint32_t)(state->bit_len >> 32); //4 * 8
+	printData(state->digest);
+	sha256_transform(state);
+  // Copy state->digest to hash
+	printData(state->digest);
+	for (int i = 0; i < SHA256_DIGEST_SIZE; ++i) {
+		hash[i] = state->digest[i];
+	}
 }
