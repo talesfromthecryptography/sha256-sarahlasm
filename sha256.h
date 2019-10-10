@@ -23,7 +23,7 @@
 
 
 typedef struct {
-	uint8_t buffer[SHA256_BUFFER_SIZE]; // buffer input until we can transform 512 bits
+	uint32_t buffer[SHA256_BUFFER_SIZE]; // buffer input until we can transform 512 bits
 	uint8_t  buffer_bytes_used;
 
 	uint64_t bit_len;                 // used in final padding

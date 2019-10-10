@@ -64,39 +64,34 @@ void sha256_transform(sha256_state *state) {
   //  Consider re-ordering some code
   //
 	uint32_t t1, t2, w[NUM_ROUNDS];
-  uint8_t i;
+  uint8_t  i;
 	uint32_t array[8];
-	uint8_t base;
+	uint8_t base = 0;
 
 	for (i = 0; i < 16; ++i)
 		w[i] = state->buffer[i];
 	for ( ; i < 64; ++i)
 		w[i] = SIG1(w[i - 2]) + w[i - 7] + SIG0(w[i - 15]) + w[i - 16];
 
-	for (i = 0; i < 8; ++i) {
+	for (i = 0; i < 8; ++i)
 		array[i] = state->digest[i];
-	}
 
 	for (i = 0; i < 64; ++i) {
 		t1 = array[(base+7)%8] + EP1(array[(base+4)%8]) + CH(array[(base+4)%8],array[(base+5)%8],array[(base+6)%8]) + k[i] + w[i];
-		t2 = EP0(array[(base)%8]) + MAJ(array[base%8],array[(base+1)%8],array[(base+2)%8]);
-
-		base = (base + 1) % 8;
-		array[0] = t1 + t2;
-		array[4] += t1;
+		t2 = EP0(array[(base)%8]) + MAJ(array[(base)%8],array[(base+1)%8],array[(base+2)%8]);
+		base = (base + 7) % 8;
+		array[base] = t1 + t2;
+		array[(base+4)%8] += t1;
 	}
 
 	for (i = 0; i < 8; ++i) {
 		state->digest[i] += array[i];
 	}
-
 }
 
 
 
-
-void sha256_init(sha256_state *state)
-{
+void sha256_init(sha256_state *state) {
   int i;
 	for (int i = 0; i < 16; ++i) {
 		state->buffer[i] = 0;
@@ -109,14 +104,17 @@ void sha256_init(sha256_state *state)
   	state->digest[i] = init_digest[i];
 }
 
-void sha256_update(sha256_state *state, const uint8_t data[], int len)
-{
+void sha256_update(sha256_state *state, const uint8_t data[], int len) {
 	int i;
+	uint8_t shift_amount;
 
 	for (i = 0; i < len; ++i) {
 		// Add data[i] to the buffer
-		state->buffer[state->buffer_bytes_used] = data[i];
+		shift_amount = 3 - state->buffer_bytes_used;
+		shift_amount *= 8;
+		state->buffer[state->buffer_bytes_used / 4] |= ((uint32_t)data[i] << (shift_amount));
 		state->buffer_bytes_used++;
+
 		if (state->buffer_bytes_used == BUFFER_FULL) {
 			sha256_transform(state);
 			state->bit_len += 512;
@@ -126,44 +124,55 @@ void sha256_update(sha256_state *state, const uint8_t data[], int len)
 }
 
 
-void printData(uint32_t* data) {
-  for (int i = 0; i < SHA256_DIGEST_SIZE; ++i) {
-    printf("%08x ", data[i]);
-  }
-  printf("\n");
-}
 
-void sha256_final(sha256_state *state, uint32_t hash[])
-{
+void sha256_final(sha256_state *state, uint32_t hash[]) {
 	uint8_t bytes_used = state->buffer_bytes_used;
+	state->bit_len += (bytes_used) * 8;
 	// Pad the buffer.
-	state->buffer[bytes_used] |= ((uint32_t) 0x80); //Add the 1: 1000 0000 is 0x80
-																									//Does this have to be shifted? @TODO
+	uint8_t shift_amount = bytes_used % 4;
+	shift_amount = 3 - shift_amount;
+	shift_amount *= 8; //Convert to bits
+	//state->buffer[bytes_used/4] = ((uint32_t) 0x80); //Add the 1: 1000 0000 is 0x80
+																									 	 //@TODO figure out how to shift it
+	state->buffer[bytes_used / 4] &= ((uint32_t)0xFFFFFF00 << shift_amount); //So the one is where it should be
+	state->buffer[bytes_used / 4] |= ((uint32_t)(0x80) << shift_amount); //Actually add the one
 	bytes_used++;
-	if (state->buffer_bytes_used < 56) {
+	if (state->buffer_bytes_used < 56 && state->buffer_bytes_used != 0) {
 		while (bytes_used < 64) {
-			state->buffer[bytes_used >> 2] |= 0;
+			state->buffer[(bytes_used + 3) / 4] = 0;
 			bytes_used++;
 		}
 	} else { // Need to add more buffers, yeet
 		// If latest buffer could not fit state->bit_len, build final buffer and transform
 		while (bytes_used < 64) {
-			state->buffer[bytes_used >> 2] |= 0;
+			state->buffer[(bytes_used + 3) / 4] = 0;
 			bytes_used++;
-			sha256_transform(state);
-			memset(state->buffer, 0, 56); //@TODO check if this is proper use of memset
+		}
+		sha256_transform(state);
+		memset(state->buffer, 0, 56); //@TODO check if this is proper use of memset
+		if (state->buffer_bytes_used == 64) {
+			state->buffer[0] = ((uint32_t) 0x80 << 3);
+			bytes_used = 1;
+		} else {
+			bytes_used = 0;
+		}
+		while (bytes_used < 64) {
+			state->buffer[(bytes_used + 3) / 4] = 0;
+			bytes_used++;
 		}
 	}
   // Transform
-	state->bit_len += state->buffer_bytes_used * 8;
+	//state->bit_len += state->buffer_bytes_used * 8;
 	state->buffer[15] = (uint32_t)(state->bit_len);
 	state->buffer[14] = (uint32_t)(state->bit_len >> 32); //4 * 8
 	sha256_transform(state);
-	for (int i = 0; i < SHA256_BUFFER_SIZE; ++i) {
-		printf("%02x ", state->buffer[i]);
-	}
   // Copy state->digest to hash
-	for (int i = 0; i < SHA256_DIGEST_SIZE; ++i) {
-		hash[i] = state->digest[i];
-	}
+	for (int i = 0; i < 8; ++i) hash[i] = state->digest[i];
+}
+
+void printData(uint32_t* data) {
+  for (int i = 0; i < 8; ++i) {
+    printf("%08x", data[i]);
+  }
+  printf("\n");
 }
