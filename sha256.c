@@ -56,6 +56,7 @@ static const uint32_t init_digest[SHA256_DIGEST_SIZE] = {
 
 
 void sha256_transform(sha256_state *state) {
+
   // Improve the efficiency of this code.
   //  1. Reduce memory usage by re-cycling w values
   //  2. Find a way to reduce copying (lines 83-90)
@@ -63,10 +64,9 @@ void sha256_transform(sha256_state *state) {
   //  Consider re-ordering some code
   //
 	uint32_t t1, t2, w[NUM_ROUNDS];
-  uint8_t  i;
-	uint32_t arrayOfLetters[8]; //rather than a-h, we're using an array where arrayOfLetters[0] = a, [1] = b, etc.
-														 //I wish I called it something shorter, but fight me
-	uint8_t base = 0;
+  uint8_t i;
+	uint32_t array[8];
+	uint8_t base;
 
 	for (i = 0; i < 16; ++i)
 		w[i] = state->buffer[i];
@@ -74,22 +74,24 @@ void sha256_transform(sha256_state *state) {
 		w[i] = SIG1(w[i - 2]) + w[i - 7] + SIG0(w[i - 15]) + w[i - 16];
 
 	for (i = 0; i < 8; ++i) {
-		arrayOfLetters[i] = state->digest[i];
+		array[i] = state->digest[i];
 	}
 
 	for (i = 0; i < 64; ++i) {
-		t1 = arrayOfLetters[(base+7)%8] + EP1(arrayOfLetters[(base+4)%8]) + CH(arrayOfLetters[(base+4)%8],arrayOfLetters[(base+5)%8],arrayOfLetters[(base+6)%8]) + k[i] + w[i];
-		t2 = EP0(arrayOfLetters[base]) + MAJ(arrayOfLetters[base],arrayOfLetters[(base+1)%8],arrayOfLetters[(base+2)%8]);
-		base = (base-1) % 8;
-		arrayOfLetters[(base+4)%8] += t1;
-		arrayOfLetters[base] = t1 + t2;
+		t1 = array[(base+7)%8] + EP1(array[(base+4)%8]) + CH(array[(base+4)%8],array[(base+5)%8],array[(base+6)%8]) + k[i] + w[i];
+		t2 = EP0(array[(base)%8]) + MAJ(array[base%8],array[(base+1)%8],array[(base+2)%8]);
+
+		base = (base + 1) % 8;
+		array[0] = t1 + t2;
+		array[4] += t1;
 	}
 
 	for (i = 0; i < 8; ++i) {
-		state->digest[i] += arrayOfLetters[(base+i)%8];
+		state->digest[i] += array[i];
 	}
 
 }
+
 
 
 
@@ -156,10 +158,11 @@ void sha256_final(sha256_state *state, uint32_t hash[])
 	state->bit_len += state->buffer_bytes_used * 8;
 	state->buffer[15] = (uint32_t)(state->bit_len);
 	state->buffer[14] = (uint32_t)(state->bit_len >> 32); //4 * 8
-	printData(state->digest);
 	sha256_transform(state);
+	for (int i = 0; i < SHA256_BUFFER_SIZE; ++i) {
+		printf("%02x ", state->buffer[i]);
+	}
   // Copy state->digest to hash
-	printData(state->digest);
 	for (int i = 0; i < SHA256_DIGEST_SIZE; ++i) {
 		hash[i] = state->digest[i];
 	}
